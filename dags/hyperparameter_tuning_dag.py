@@ -126,8 +126,13 @@ def run_ray_tune_optimization(**context):
 
     logging.info(f"Donnees chargees: X_train={X_train.shape}, classes_queue={n_classes_queue}, classes_urgency={n_classes_urgency}")
 
-    # Initialisation Ray
-    ray.init(ignore_reinit_error=True, num_cpus=4)
+    # Initialisation Ray avec dashboard accessible
+    ray.init(
+        ignore_reinit_error=True,
+        num_cpus=4,
+        dashboard_host="0.0.0.0",  # Accessible depuis l'exterieur
+        dashboard_port=8265
+    )
 
     # Espace de recherche
     search_space = {
