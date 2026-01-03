@@ -4,17 +4,18 @@ x-airflow-common: &airflow-common
   image: apache/airflow:2.7.0
   user: "${AIRFLOW_UID:-50000}:0"
   environment:
-    - _PIP_ADDITIONAL_REQUIREMENTS=evidently pandas sqlalchemy psycopg2-binary pyarrow xgboost scikit-learn mlflow joblib sentence-transformers
+    - _PIP_ADDITIONAL_REQUIREMENTS=evidently pandas sqlalchemy psycopg2-binary pyarrow xgboost scikit-learn mlflow joblib sentence-transformers ray[tune] optuna
     - AIRFLOW__CORE__EXECUTOR=LocalExecutor
     - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
-    - AIRFLOW__CORE__FERNET_KEY=Rw2o1IbE4JxxC1Vg-HRrraK47lqJP_CbIl2fqmxi0Zk=
+    - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
     - AIRFLOW__CORE__LOAD_EXAMPLES=False
-    - AIRFLOW__WEBSERVER__SECRET_KEY=your_secret_key_here
+    - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW_SECRET_KEY}
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
     - ./data:/opt/airflow/data
     - ./mlruns:/opt/airflow/mlruns
+    - ./reports:/opt/airflow/reports
   extra_hosts:
     - "host.docker.internal:host-gateway"
 
@@ -66,9 +67,20 @@ services:
     <<: *airflow-common
     container_name: support_airflow_scheduler
     command: scheduler
+    ports:
+      - "8265:8265"  # Ray Dashboard (disponible pendant hyperparameter tuning)
     depends_on:
       airflow-postgres:
         condition: service_healthy
+
+  evidently-reports:
+    image: nginx:alpine
+    container_name: support_evidently_reports
+    ports:
+      - "8083:80"  # Interface web pour rapports Evidently
+    volumes:
+      - ./reports:/usr/share/nginx/html:ro
+    restart: unless-stopped
 
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.9.2
