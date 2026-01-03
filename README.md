@@ -61,3 +61,4 @@ projet_mlops_support/
 - Notebook RLHF: `../RL/RL_DL/08-Code-RLHF_gpt2-sentiment.ipynb`
 - Dataset: [Bitext Customer Support](https://huggingface.co/datasets/bitext/Bitext-customer-support-llm-chatbot-training-dataset)
 - TRL Documentation: https://huggingface.co/docs/trl
+
