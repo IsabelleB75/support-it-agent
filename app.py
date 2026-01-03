@@ -153,8 +153,15 @@ def log_prediction(input_text: str, pred_queue: str, pred_urgency: str,
 def agent(query: Query):
     pred_queue, pred_urgency = predict_queue_urgency(query.user_query)
 
-    # Toujours faire RAG sur le message actuel (nouvelles infos potentielles)
-    retrieved = retrieve_rag(query.user_query, predicted_queue=pred_queue, top_k=5)
+    # Construire la requête RAG avec contexte si historique existe
+    if query.conversation_history:
+        # Combiner première question + message actuel pour meilleur RAG
+        first_user_msg = next((m["content"] for m in query.conversation_history if m["role"] == "user"), "")
+        rag_query = f"{first_user_msg} {query.user_query}"
+    else:
+        rag_query = query.user_query
+
+    retrieved = retrieve_rag(rag_query, predicted_queue=pred_queue, top_k=5)
 
     # Mistral reçoit: historique + docs RAG + nouveau message
     response = generate_response(query.user_query, retrieved, pred_queue, pred_urgency, query.conversation_history)
