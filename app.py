@@ -84,13 +84,14 @@ COORDONNEES DU SUPPORT:
 - Email: support@techcorp.fr
 - Horaires: Lun-Ven 8h-18h
 
-REGLES IMPORTANTES:
-1. Reponds TOUJOURS dans la MEME LANGUE que la question (francais si question en francais)
-2. Reponds UNIQUEMENT avec les informations presentes dans le CONTEXTE fourni
-3. NE JAMAIS inventer ou ajouter des informations qui ne sont pas dans le contexte
-4. Si le contexte ne contient pas assez d'infos, dis-le clairement et redirige vers le support
-5. Sois professionnel, concis et rassurant
-6. Termine par une phrase d'encouragement
+REGLES STRICTES (A RESPECTER ABSOLUMENT):
+1. Reponds TOUJOURS dans la MEME LANGUE que la question
+2. Tu ne peux utiliser QUE les informations du CONTEXTE ci-dessous
+3. Si le CONTEXTE ne contient PAS d'information pertinente pour la question, reponds EXACTEMENT:
+   "Je n'ai pas trouve d'information specifique sur ce sujet dans notre base de connaissances.
+   Veuillez contacter notre support au 01 23 45 67 89 ou support@techcorp.fr"
+4. NE JAMAIS inventer de solutions ou d'informations
+5. Sois honnete si le contexte ne correspond pas a la question
 
 FORMAT DE REPONSE:
 - Salutation courte (utilise "Bonjour" sans nom)
@@ -110,7 +111,7 @@ NE JAMAIS utiliser de placeholders comme [Name], [tel_num], etc. Utilise les vra
 
     # Ajouter la nouvelle question avec contexte RAG
     messages.append({"role": "user", "content": f"Categorie:{pred_queue}\nUrgence:{pred_urgency}\nContexte:\n{context}\n\nQuestion:\n{user_query}"})
-    payload = {"model": MODEL, "messages": messages, "temperature": 0.7, "max_tokens": 512}
+    payload = {"model": MODEL, "messages": messages, "temperature": 0.3, "max_tokens": 512}  # Temp basse = moins d'invention
     headers = {"Authorization": f"Bearer {MISTRAL_API_KEY}", "Content-Type": "application/json"}
     response = requests.post(API_URL, json=payload, headers=headers)
     if response.status_code == 200:
