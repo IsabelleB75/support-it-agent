@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: bootcamp_postgres
+    environment:
+      POSTGRES_USER: bootcamp_user
+      POSTGRES_PASSWORD: bootcamp_password
+      POSTGRES_DB: support_tech
+    ports:
+      - "5433:5432"  # Port 5433 pour ne PAS toucher à fraud_postgres (5432)
+    volumes:
+      - bootcamp_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  bootcamp_postgres_data:

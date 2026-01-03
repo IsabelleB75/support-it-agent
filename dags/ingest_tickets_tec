@@ -1,0 +1,67 @@
+# DAG : ingest_tickets_tech_en                                                  
+                                                                                
+## Description                                                                  
+Ce DAG ingère les tickets de support technique filtrés (anglais uniquement) depu
+is un fichier Parquet vers PostgreSQL.                                            
+                                                                                
+---                                                                             
+                                                                                
+## Informations générales                                                       
+                                                                                
+| Paramètre | Valeur |                                                          
+|-----------|--------|                                                          
+| **DAG ID** | `ingest_tickets_tech_en` |                                       
+| **Owner** | `jedha_bootcamp` |                                                
+| **Schedule** | Manuel (`None`) |                                              
+| **Retries** | 1 |                                                             
+| **Tags** | `ingestion`, `postgres`, `tickets` |                               
+                                                                                
+---                                                                             
+                                                                                
+## Architecture                                                                 
+
+┌─────────────────────────────────────────────────┐
+│                  DAG Airflow                     │
+│            ingest_tickets_tech_en                │
+│                                                  │
+│  ┌──────────────────────────────────────────┐   │
+│  │     Task: ingest_tickets_to_postgres      │   │
+│  │                                           │   │
+│  │  1. Lit train_tech_en.parquet            │   │
+│  │  2. Connecte à Postgres (port 5433)      │   │
+│  │  3. Insère 17893 lignes                  │   │
+│  └──────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────┘
+
+---
+---
+
+## Paramètres to_sql()
+
+| Paramètre | Description |
+|-----------|-------------|
+| `if_exists='replace'` | Remplace la table si elle existe |
+| `method='multi'` | Insert plusieurs lignes à la fois (rapide) |
+| `chunksize=1000` | Par lots de 1000 lignes |
+
+---
+
+## Connexion Postgres
+
+| Paramètre | Valeur |
+|-----------|--------|
+| Host | `host.docker.internal` |
+| Port | `5433` |
+| Database | `support_tech` |
+| Table | `tickets_tech_en` |
+| User | `bootcamp_user` |
+
+---
+
+## Résultat
+
+| Métrique | Valeur |
+|----------|--------|
+| Lignes ingérées | 17 893 |
+| Temps | ~5 sec | 
+| Status | SUCCESS |
