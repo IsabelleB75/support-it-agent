@@ -109,7 +109,7 @@ jobs:
 
       - name: Wait for rollout
         run: |
-          kubectl rollout status deployment/support-agent --timeout=300s
+          kubectl rollout status deployment/support-agent --timeout=1200s
 
       - name: Show deployment status
         run: |
