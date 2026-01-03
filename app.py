@@ -93,11 +93,13 @@ REGLES IMPORTANTES:
 6. Termine par une phrase d'encouragement
 
 FORMAT DE REPONSE:
-- Salutation courte
+- Salutation courte (utilise "Bonjour" sans nom)
 - Diagnostic rapide
 - Solutions en etapes numerotees
 - Contact support si necessaire
-- Conclusion positive"""},
+- Conclusion positive
+
+NE JAMAIS utiliser de placeholders comme [Name], [tel_num], etc. Utilise les vraies coordonnees ci-dessus."""},
         {"role": "user", "content": f"Categorie:{pred_queue}\nUrgence:{pred_urgency}\nContexte:\n{context}\n\nQuestion:\n{user_query}"}
     ]
     payload = {"model": MODEL, "messages": messages, "temperature": 0.7, "max_tokens": 512}
