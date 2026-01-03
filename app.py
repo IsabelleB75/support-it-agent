@@ -74,10 +74,10 @@ def retrieve_rag(query_text, predicted_queue=None, top_k=5):
     conn.close()
     return [row[0] for row in results]
 
-def generate_response(user_query, retrieved_contents, pred_queue, pred_urgency):
+def generate_response(user_query, retrieved_contents, pred_queue, pred_urgency, conversation_history=None):
     context = "\n\n".join(retrieved_contents)
-    messages = [
-        {"role": "system", "content": """Tu es un agent de support technique IT de l'entreprise TechCorp.
+
+    system_prompt = """Tu es un agent de support technique IT de l'entreprise TechCorp.
 
 COORDONNEES DU SUPPORT:
 - Telephone: 01 23 45 67 89
@@ -99,9 +99,17 @@ FORMAT DE REPONSE:
 - Contact support si necessaire
 - Conclusion positive
 
-NE JAMAIS utiliser de placeholders comme [Name], [tel_num], etc. Utilise les vraies coordonnees ci-dessus."""},
-        {"role": "user", "content": f"Categorie:{pred_queue}\nUrgence:{pred_urgency}\nContexte:\n{context}\n\nQuestion:\n{user_query}"}
-    ]
+NE JAMAIS utiliser de placeholders comme [Name], [tel_num], etc. Utilise les vraies coordonnees ci-dessus."""
+
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # Ajouter l'historique de conversation si présent
+    if conversation_history:
+        for msg in conversation_history:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+    # Ajouter la nouvelle question avec contexte RAG
+    messages.append({"role": "user", "content": f"Categorie:{pred_queue}\nUrgence:{pred_urgency}\nContexte:\n{context}\n\nQuestion:\n{user_query}"})
     payload = {"model": MODEL, "messages": messages, "temperature": 0.7, "max_tokens": 512}
     headers = {"Authorization": f"Bearer {MISTRAL_API_KEY}", "Content-Type": "application/json"}
     response = requests.post(API_URL, json=payload, headers=headers)
@@ -113,6 +121,7 @@ app = FastAPI(title="Agent Support IT - MLOps Bootcamp")
 
 class Query(BaseModel):
     user_query: str
+    conversation_history: Optional[list] = None  # Liste de {"role": "user/assistant", "content": "..."}
 
 class Feedback(BaseModel):
     prediction_id: int
@@ -144,7 +153,7 @@ def log_prediction(input_text: str, pred_queue: str, pred_urgency: str,
 def agent(query: Query):
     pred_queue, pred_urgency = predict_queue_urgency(query.user_query)
     retrieved = retrieve_rag(query.user_query, predicted_queue=pred_queue, top_k=5)
-    response = generate_response(query.user_query, retrieved, pred_queue, pred_urgency)
+    response = generate_response(query.user_query, retrieved, pred_queue, pred_urgency, query.conversation_history)
 
     # Log la prediction pour monitoring et retraining
     prediction_id = log_prediction(query.user_query, pred_queue, pred_urgency)
