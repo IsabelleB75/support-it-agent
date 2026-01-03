@@ -152,7 +152,20 @@ def log_prediction(input_text: str, pred_queue: str, pred_urgency: str,
 @app.post("/predict")
 def agent(query: Query):
     pred_queue, pred_urgency = predict_queue_urgency(query.user_query)
-    retrieved = retrieve_rag(query.user_query, predicted_queue=pred_queue, top_k=5)
+
+    # Si message court ET historique existe → skip RAG (message de suivi)
+    is_followup = query.conversation_history and len(query.user_query) < 50
+
+    if is_followup:
+        # Utiliser le RAG de la première question de l'historique
+        first_user_msg = next((m["content"] for m in query.conversation_history if m["role"] == "user"), None)
+        if first_user_msg:
+            retrieved = retrieve_rag(first_user_msg, predicted_queue=pred_queue, top_k=3)
+        else:
+            retrieved = []
+    else:
+        retrieved = retrieve_rag(query.user_query, predicted_queue=pred_queue, top_k=5)
+
     response = generate_response(query.user_query, retrieved, pred_queue, pred_urgency, query.conversation_history)
 
     # Log la prediction pour monitoring et retraining
@@ -163,7 +176,9 @@ def agent(query: Query):
         "query": query.user_query,
         "predicted_queue": pred_queue,
         "predicted_urgency": pred_urgency,
-        "response": response
+        "response": response,
+        "rag_sources": [doc[:100] + "..." if len(doc) > 100 else doc for doc in retrieved[:3]],
+        "is_followup": is_followup
     }
 
 @app.post("/feedback")
