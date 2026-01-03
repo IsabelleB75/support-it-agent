@@ -257,6 +257,67 @@ def validate_and_promote(**context):
         logging.warning("Metriques insuffisantes - Modele non promu")
         logging.warning("Verification manuelle requise")
 
+def deploy_model(**context):
+    """Sauvegarde le modele avec DVC et declenche le CI/CD"""
+    import subprocess
+    import requests
+
+    f1_queue = context['ti'].xcom_pull(key='f1_queue', task_ids='train_models')
+    f1_urgency = context['ti'].xcom_pull(key='f1_urgency', task_ids='train_models')
+
+    # Seuils minimaux
+    MIN_F1_QUEUE = 0.70
+    MIN_F1_URGENCY = 0.65
+
+    if f1_queue < MIN_F1_QUEUE or f1_urgency < MIN_F1_URGENCY:
+        logging.warning("Modele non deploye - metriques insuffisantes")
+        return
+
+    logging.info("=== DEPLOIEMENT AUTOMATIQUE ===")
+
+    # 1. DVC push vers S3
+    try:
+        PROJECT_PATH = "/opt/airflow/project"  # Path vers le repo git
+
+        # Copie les modeles vers le repo
+        subprocess.run(["cp", "/tmp/le_queue.pkl", f"{PROJECT_PATH}/le_queue.pkl"], check=True)
+        subprocess.run(["cp", "/tmp/le_urgency.pkl", f"{PROJECT_PATH}/le_urgency.pkl"], check=True)
+
+        # DVC add + push
+        subprocess.run(["dvc", "add", "le_queue.pkl"], cwd=PROJECT_PATH, check=True)
+        subprocess.run(["dvc", "add", "le_urgency.pkl"], cwd=PROJECT_PATH, check=True)
+        subprocess.run(["dvc", "push"], cwd=PROJECT_PATH, check=True)
+
+        logging.info("DVC push vers S3 OK")
+    except Exception as e:
+        logging.error(f"Erreur DVC push: {e}")
+        return
+
+    # 2. Declenche le CI/CD via GitHub API
+    try:
+        GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+        if not GITHUB_TOKEN:
+            logging.warning("GITHUB_TOKEN non configure - CI/CD non declenche")
+            return
+
+        # Trigger workflow_dispatch
+        url = "https://api.github.com/repos/IsabelleB75/support-it-agent/actions/workflows/ci-cd.yaml/dispatches"
+        headers = {
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        data = {"ref": "main"}
+
+        response = requests.post(url, headers=headers, json=data)
+
+        if response.status_code == 204:
+            logging.info("CI/CD declenche avec succes!")
+        else:
+            logging.error(f"Erreur CI/CD: {response.status_code} - {response.text}")
+    except Exception as e:
+        logging.error(f"Erreur declenchement CI/CD: {e}")
+
+
 def cleanup():
     """Nettoie les fichiers temporaires"""
     import os
@@ -286,10 +347,17 @@ validate_task = PythonOperator(
     dag=dag,
 )
 
+deploy_task = PythonOperator(
+    task_id='deploy_model',
+    python_callable=deploy_model,
+    provide_context=True,
+    dag=dag,
+)
+
 cleanup_task = PythonOperator(
     task_id='cleanup',
     python_callable=cleanup,
     dag=dag,
 )
 
-load_task >> train_task >> validate_task >> cleanup_task
+load_task >> train_task >> validate_task >> deploy_task >> cleanup_task

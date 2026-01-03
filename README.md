@@ -1,65 +1,207 @@
-# Projet MLOps - Agent Support Technique
+# Agent Support IT - MLOps
 
-## Objectif
+Agent de support technique automatise utilisant le Machine Learning pour classifier les demandes et generer des reponses pertinentes.
 
-Construire un chatbot de support technique automatisé avec:
-- Classification des demandes (Random Forest)
-- Niveau d'urgence
-- Génération de réponses (LLM fine-tuné + RLHF)
-- Retraining automatisé
+## Features
 
-## Données
-
-### Option Bootcamp (données publiques)
-```python
-from datasets import load_dataset
-dataset = load_dataset("bitext/Bitext-customer-support-llm-chatbot-training-dataset")
-```
-
-**Contient:**
-- 26,000 exemples
-- 27 catégories
-- Questions + Réponses
-- Intentions labellisées
-
-### Option Production (données confidentielles)
-- 4 ans d'emails collaborateurs
-- Réponses des agents humains
-- Documentation technique
+- Classification automatique des tickets (queue + urgence) avec XGBoost
+- Recherche semantique dans la base de connaissances (RAG avec Sentence Transformers)
+- Generation de reponses avec Mistral API
+- Monitoring de drift avec Evidently
+- Retraining automatique si drift detecte
+- CI/CD avec GitHub Actions + deploiement K3s
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    PIPELINE MLOPS COMPLET                       │
-│                                                                 │
-│  1. CLASSIFICATION ──> 2. RAG ──> 3. LLM ──> 4. RLHF            │
-│         │                │          │          │                │
-│    Random Forest    Recherche   Fine-tuné   Optimisé            │
-│    Catégorie +      dans doc    Mistral/    avec                │
-│    Urgence                      Llama       feedback            │
-│                                                                 │
-│  5. DEPLOY ──> 6. MONITORING ──> 7. RETRAIN AUTO                │
-│                                                                 │
+│                         USER REQUEST                            │
+│                    "Mon VPN ne marche pas"                      │
 └─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      API FastAPI (K3s)                          │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              ▼               ▼               ▼
+      ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+      │  XGBoost    │ │  Sentence   │ │   Mistral   │
+      │  Classifier │ │ Transformers│ │     API     │
+      │ (queue +    │ │    (RAG)    │ │  (reponse)  │
+      │  urgence)   │ │             │ │             │
+      └─────────────┘ └─────────────┘ └─────────────┘
 ```
 
-## Structure du projet
+## Pipeline MLOps Complet
+
+```
+   ┌───────────────────────┐       ┌───────────────────────┐       ┌───────────────────────┐
+   │   1. DATA PIPELINE    │       │  2. TRAINING PIPELINE │       │    3. DEPLOYMENT      │
+   ├───────────────────────┤       ├───────────────────────┤       ├───────────────────────┤
+   │ PostgreSQL            │       │ Airflow DAG training  │       │ Docker: build image   │
+   │ - tickets_tech_en     │features│ - XGBoost (queue +   │modele │ - ghcr.io registry    │
+   │ - prediction_logs     │──────>│   urgence)            │──────>│                       │
+   │ - embeddings (PGVector)│      │ - Ray Tune (hyperparam)│       │ GitHub Actions: CI/CD │
+   │                       │       │                       │       │                       │
+   │ Airflow DAGs:         │       │ MLflow:               │       │ K3s: Deployment       │
+   │ - ingest_tickets      │       │ - tracking experiments│       │ - 2 pods              │
+   │ - prep_features       │       │ - model registry      │       │ - NodePort :30080     │
+   │ - ingestion_rag       │       │                       │       │                       │
+   │                       │       │                       │       │                       │
+   │ DVC: versioning data  │       │                       │       │                       │
+   │ - S3 storage          │       │                       │       │                       │
+   └───────────────────────┘       └───────────────────────┘       └───────────────────────┘
+   ▲                                                                          │
+   │                                                                          │
+   │                                                                          ▼
+   │ ┌───────────────────────┐       ┌───────────────────────────────────────────────────────┐
+   │ │    5. MONITORING      │       │              4. SERVING (temps reel)                  │
+   │ ├───────────────────────┤       ├───────────────────────────────────────────────────────┤
+   │ │ Airflow DAG:          │       │  Question utilisateur: "Mon VPN ne marche pas"       │
+   │ │ - monitoring_evidently│       │                          │                           │
+   │ │                       │       │                          ▼                           │
+   │ │ prediction_logs:      │ logs  │  FastAPI (http://78.47.129.250:30080)                 │
+   │ │ - predictions         │<──────│  - XGBoost: prediction queue + urgence               │
+   │ │ - feedback            │       │  - Sentence Transformers: RAG                        │
+   │ │                       │       │  - Mistral API: generation reponse                   │
+   │ │ Evidently lit les logs│       │                          │                           │
+   │ │                       │       │                          ▼                           │
+   │ │  ┌─────┐  ┌──────┐    │       │  Feedback utilisateur → prediction_logs              │
+   │ │  │ OK  │  │DRIFT │    │       └───────────────────────────────────────────────────────┘
+   │ │  └──┬──┘  └──┬───┘    │
+   │ │     │        │        │
+   │ │  (rien)   retrain     │
+   │ └──────────────┼────────┘
+   │                │
+   │                ▼
+   │        ┌──────────────┐
+   │        │ DAG retrain  │
+   │        └──────────────┘
+   │                │
+   └────────────────┘
+```
+
+## Stack Technique
+
+| Composant | Technologie |
+|-----------|-------------|
+| API | FastAPI |
+| Classification | XGBoost |
+| Embeddings | Sentence Transformers (all-MiniLM-L6-v2) |
+| LLM | Mistral API |
+| Base de donnees | PostgreSQL + PGVector |
+| Orchestration | Airflow |
+| Tracking ML | MLflow |
+| Versioning data | DVC + S3 |
+| Monitoring | Evidently |
+| Hyperparametres | Ray Tune |
+| Conteneurisation | Docker |
+| Orchestration K8s | K3s |
+| CI/CD | GitHub Actions |
+
+## Les 6 Composants MLOps
+
+| # | Composant | Implementation |
+|---|-----------|----------------|
+| 1 | Pipelines de donnees | Airflow DAGs (ingestion, features, RAG) |
+| 2 | Versioning | DVC (donnees sur S3) + MLflow (modeles) |
+| 3 | Monitoring | Evidently (detection drift) via Airflow |
+| 4 | Retraining | DAG retraining_pipeline automatique |
+| 5 | Hyperparametres | Ray Tune via Airflow |
+| 6 | Deploiement | GitHub Actions CI/CD + K3s |
+
+## Installation
+
+### Prerequis
+
+- Python 3.10+
+- Docker & Docker Compose
+- Acces AWS S3 (pour DVC)
+
+### Lancer le projet
+
+```bash
+# 1. Cloner le repo
+git clone https://github.com/IsabelleB75/support-it-agent.git
+cd support-it-agent
+
+# 2. Configurer les variables d'environnement
+cp .env.example .env
+# Editer .env avec vos cles
+
+# 3. Recuperer les modeles depuis S3
+pip install dvc dvc-s3
+dvc pull
+
+# 4. Lancer les services
+docker-compose -f docker-compose-db.yaml up -d
+docker-compose -f docker-compose-airflow.yaml up -d
+
+# 5. Lancer l'API
+pip install -r requirements.txt
+uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+## Endpoints API
+
+| Endpoint | Methode | Description |
+|----------|---------|-------------|
+| `/health` | GET | Health check |
+| `/predict` | POST | Envoie une question, recoit prediction + reponse |
+| `/feedback` | POST | Feedback utilisateur pour retraining |
+
+### Exemple
+
+```bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"user_query": "Mon VPN ne marche pas"}'
+```
+
+## Structure du Projet
 
 ```
 projet_mlops_support/
-├── README.md                    # Ce fichier
-├── 01_RLHF_explications.md      # Comprendre RLHF
-├── 02_architecture_projet.md    # Architecture détaillée
-├── 03_retraining_auto.md        # Pipeline de retraining
-├── 04_pourquoi_finetuning.md    # Avantages vs API
-└── code/                        # Code du projet (à venir)
+├── app.py                      # API FastAPI
+├── Dockerfile                  # Image Docker
+├── requirements.txt            # Dependances Python
+├── dags/                       # DAGs Airflow
+│   ├── ingest_tickets_tech.py
+│   ├── prep_tickets_features.py
+│   ├── classification_xgboost_mlflow.py
+│   ├── hyperparameter_tuning_dag.py
+│   ├── monitoring_evidently.py
+│   ├── retraining_pipeline.py
+│   └── ingestion_rag_pgvector.py
+├── k8s/                        # Manifests Kubernetes
+│   ├── deployment.yaml
+│   └── service.yaml
+├── .github/workflows/          # CI/CD
+│   └── ci-cd.yaml
+├── docs/                       # Documentation
+└── data/                       # Donnees (via DVC)
 ```
 
-## Ressources
+## URLs des Services (Production)
 
-- Notebook RLHF: `../RL/RL_DL/08-Code-RLHF_gpt2-sentiment.ipynb`
-- Dataset: [Bitext Customer Support](https://huggingface.co/datasets/bitext/Bitext-customer-support-llm-chatbot-training-dataset)
-- TRL Documentation: https://huggingface.co/docs/trl
+| Service | URL |
+|---------|-----|
+| API Support Agent | http://78.47.129.250:30080 |
+| API Docs (Swagger) | http://78.47.129.250:30080/docs |
+| MLflow | http://78.47.129.250:5000 |
+| Airflow | http://78.47.129.250:8082 |
+| Evidently Reports | http://78.47.129.250:8083 |
 
+## CI/CD Pipeline
 
+```
+git push → Tests → Build Docker → Push ghcr.io → Deploy K3s
+```
+
+Chaque push sur `main` declenche automatiquement le pipeline.
+
+## Licence
+
+Projet realise dans le cadre du bootcamp Jedha - Data Engineering & MLOps.

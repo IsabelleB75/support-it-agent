@@ -5,6 +5,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:  # Permet le declenchement via API (retraining automatique)
 
 env:
   REGISTRY: ghcr.io
