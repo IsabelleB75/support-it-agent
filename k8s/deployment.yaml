@@ -14,10 +14,12 @@ spec:
       labels:
         app: support-agent
     spec:
+      imagePullSecrets:
+      - name: ghcr-secret
       containers:
       - name: support-agent
-        image: support-agent:v1
-        imagePullPolicy: Never
+        image: ghcr.io/isabelleb75/support-it-agent:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
         env:
