@@ -23,11 +23,11 @@ spec:
         ports:
         - containerPort: 8000
         env:
-        - name: MISTRAL_API_KEY
+        - name: ANTHROPIC_API_KEY
           valueFrom:
             secretKeyRef:
               name: support-agent-secrets
-              key: mistral-api-key
+              key: anthropic-api-key
         - name: POSTGRES_HOST
           value: "78.47.129.250"
         - name: POSTGRES_PORT

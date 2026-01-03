@@ -11,10 +11,10 @@ import re
 import os
 from datetime import datetime
 
-# API Mistral - depuis variable d'environnement
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
-API_URL = "https://api.mistral.ai/v1/chat/completions"
-MODEL = "open-mistral-7b"
+# API Claude (Anthropic) - depuis variable d'environnement
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+API_URL = "https://api.anthropic.com/v1/messages"
+MODEL = "claude-sonnet-4-20250514"
 
 # Chemins locaux
 le_queue = joblib.load("le_queue.pkl")
@@ -102,7 +102,8 @@ FORMAT DE REPONSE:
 
 NE JAMAIS utiliser de placeholders comme [Name], [tel_num], etc. Utilise les vraies coordonnees ci-dessus."""
 
-    messages = [{"role": "system", "content": system_prompt}]
+    # Format Anthropic: system séparé, messages user/assistant
+    messages = []
 
     # Ajouter l'historique de conversation si présent
     if conversation_history:
@@ -111,12 +112,23 @@ NE JAMAIS utiliser de placeholders comme [Name], [tel_num], etc. Utilise les vra
 
     # Ajouter la nouvelle question avec contexte RAG
     messages.append({"role": "user", "content": f"Categorie:{pred_queue}\nUrgence:{pred_urgency}\nContexte:\n{context}\n\nQuestion:\n{user_query}"})
-    payload = {"model": MODEL, "messages": messages, "temperature": 0.3, "max_tokens": 512}  # Temp basse = moins d'invention
-    headers = {"Authorization": f"Bearer {MISTRAL_API_KEY}", "Content-Type": "application/json"}
+
+    payload = {
+        "model": MODEL,
+        "system": system_prompt,
+        "messages": messages,
+        "temperature": 0.3,
+        "max_tokens": 512
+    }
+    headers = {
+        "x-api-key": ANTHROPIC_API_KEY,
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01"
+    }
     response = requests.post(API_URL, json=payload, headers=headers)
     if response.status_code == 200:
-        return response.json()['choices'][0]['message']['content']
-    return f"Erreur: {response.status_code}"
+        return response.json()['content'][0]['text']
+    return f"Erreur: {response.status_code} - {response.text}"
 
 app = FastAPI(title="Agent Support IT - MLOps Bootcamp")
 
