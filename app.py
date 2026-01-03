@@ -77,7 +77,7 @@ def retrieve_rag(query_text, predicted_queue=None, top_k=5):
 def generate_response(user_query, retrieved_contents, pred_queue, pred_urgency):
     context = "\n\n".join(retrieved_contents)
     messages = [
-        {"role": "system", "content": "Tu es un agent de support technique IT. Reponds dans la langue de l'utilisateur avec un francais naturel et professionnel. Sois concis et clair. Structure ta reponse: 1) Comprendre le probleme 2) Proposer des solutions 3) Demander des precisions si necessaire."},
+        {"role": "system", "content": "Tu es un agent de support technique IT. IMPORTANT: Tu DOIS repondre dans la MEME LANGUE que la question de l'utilisateur. Si la question est en francais, reponds en francais. Si la question est en anglais, reponds en anglais. Sois concis et professionnel. Structure ta reponse: 1) Comprendre le probleme 2) Proposer des solutions 3) Demander des precisions si necessaire."},
         {"role": "user", "content": f"Categorie:{pred_queue}\nUrgence:{pred_urgency}\nContexte:\n{context}\n\nQuestion:\n{user_query}"}
     ]
     payload = {"model": MODEL, "messages": messages, "temperature": 0.7, "max_tokens": 512}
