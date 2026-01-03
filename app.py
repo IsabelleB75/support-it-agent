@@ -86,9 +86,9 @@ COORDONNEES DU SUPPORT:
 
 REGLES IMPORTANTES:
 1. Reponds TOUJOURS dans la MEME LANGUE que la question (francais si question en francais)
-2. Donne des solutions CONCRETES et DIRECTES - ne demande PAS d'informations supplementaires
-3. Propose 2-3 etapes claires pour resoudre le probleme
-4. Si le probleme necessite une intervention physique, indique les coordonnees du support
+2. Reponds UNIQUEMENT avec les informations presentes dans le CONTEXTE fourni
+3. NE JAMAIS inventer ou ajouter des informations qui ne sont pas dans le contexte
+4. Si le contexte ne contient pas assez d'infos, dis-le clairement et redirige vers le support
 5. Sois professionnel, concis et rassurant
 6. Termine par une phrase d'encouragement
 
@@ -175,7 +175,7 @@ def agent(query: Query):
         "predicted_queue": pred_queue,
         "predicted_urgency": pred_urgency,
         "response": response,
-        "rag_sources": [doc[:100] + "..." if len(doc) > 100 else doc for doc in retrieved[:3]]
+        "rag_sources": retrieved[:3]  # Sources complètes pour vérification
     }
 
 @app.post("/feedback")
