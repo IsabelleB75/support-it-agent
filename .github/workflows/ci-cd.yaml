@@ -94,9 +94,11 @@ jobs:
         uses: azure/setup-kubectl@v3
 
       - name: Configure kubeconfig for K3s
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
         run: |
           mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
+          echo "$KUBE_CONFIG" > ~/.kube/config
           chmod 600 ~/.kube/config
 
       - name: Deploy to K3s cluster
