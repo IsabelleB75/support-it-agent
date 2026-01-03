@@ -8,7 +8,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: isabelleb75/support-it-agent
 
 jobs:
   # Job 1: Tests
