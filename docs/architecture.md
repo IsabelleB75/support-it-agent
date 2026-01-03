@@ -1,4 +1,14 @@
-# Architecture du Projet Support Technique
+# Architecture du Projet Support IT Agent
+
+## Pipeline 100% Automatise
+
+Ce projet implemente un pipeline MLOps **entierement automatise** :
+
+```
+Drift detecte → Retraining → Validation → DVC push → CI/CD → Deploy K3s
+```
+
+Aucune intervention manuelle requise entre la detection de drift et le deploiement du nouveau modele.
 
 ## Vue d'ensemble
 
@@ -10,184 +20,169 @@
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    1. CLASSIFICATION                            │
-│                      Random Forest                              │
-│                                                                 │
-│  Input:  "Mon VPN ne marche pas"                                │
-│  Output: Catégorie = "NETWORK"                                  │
-│          Urgence = "HIGH"                                       │
+│                      API FastAPI (K3s)                          │
+│                    http://78.47.129.250:30080                   │
 └─────────────────────────────────────────────────────────────────┘
                               │
+              ┌───────────────┼───────────────┐
+              ▼               ▼               ▼
+      ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+      │  XGBoost    │ │  Sentence   │ │   Mistral   │
+      │  Classifier │ │ Transformers│ │     API     │
+      │ (queue +    │ │    (RAG)    │ │  (reponse)  │
+      │  urgence)   │ │             │ │             │
+      └─────────────┘ └─────────────┘ └─────────────┘
+              │               │               │
+              └───────────────┼───────────────┘
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                       2. RAG                                    │
-│              Retrieval Augmented Generation                     │
-│                                                                 │
-│  Recherche dans la documentation:                               │
-│  → "Guide VPN entreprise.pdf"                                   │
-│  → "FAQ problèmes réseau.md"                                    │
-│  → Tickets similaires résolus                                   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    3. LLM FINE-TUNÉ                             │
-│                   Mistral 7B / Llama                            │
-│                                                                 │
-│  Prompt:                                                        │
-│  - Question: "Mon VPN ne marche pas"                            │
-│  - Contexte: [docs RAG]                                         │
-│  - Catégorie: NETWORK (HIGH)                                    │
-│                                                                 │
-│  Réponse générée:                                               │
-│  "Bonjour, je comprends votre problème de VPN.                  │
-│   Voici les étapes à suivre:                                    │
-│   1. Vérifiez votre connexion internet                          │
-│   2. Redémarrez le client VPN                                   │
-│   3. ..."                                                       │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         RÉPONSE                                 │
-│                    Envoyée au client                            │
+│                         RESPONSE                                │
+│  - predicted_queue: "Network / Infrastructure"                  │
+│  - predicted_urgency: "high"                                    │
+│  - response: "Voici les etapes pour resoudre..."               │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Composant 1: Classification (Random Forest)
+## Composant 1: Classification (XGBoost)
 
 ### Objectif
-- Catégoriser la demande
-- Déterminer le niveau d'urgence
-- Router vers le bon traitement
+- Classifier la demande dans une queue (Network, Hardware, Software, etc.)
+- Determiner le niveau d'urgence (low, medium, high)
 
-### Catégories possibles
-| Catégorie | Exemples |
-|-----------|----------|
-| ACCOUNT | Login, mot de passe, permissions |
-| NETWORK | VPN, wifi, connexion |
-| HARDWARE | Imprimante, écran, clavier |
-| SOFTWARE | Installation, bugs, licences |
-| BILLING | Factures, abonnements |
+### Implementation
+- **Modele** : XGBoost (multi-class softprob)
+- **Features** : Embeddings (Sentence Transformers) + features numeriques
+- **Tracking** : MLflow
 
-### Niveaux d'urgence
-| Niveau | Critère |
-|--------|---------|
-| LOW | Pas bloquant |
-| MEDIUM | Gênant mais contournable |
-| HIGH | Bloquant pour le travail |
-| CRITICAL | Impact business majeur |
-
-### Code exemple
 ```python
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.feature_extraction.text import TfidfVectorizer
+from xgboost import XGBClassifier
+from sentence_transformers import SentenceTransformer
 
-# Vectorisation
-vectorizer = TfidfVectorizer(max_features=1000)
-X = vectorizer.fit_transform(texts)
+embedder = SentenceTransformer('all-MiniLM-L6-v2')
+embeddings = embedder.encode(texts)
 
-# Classification catégorie
-clf_category = RandomForestClassifier(n_estimators=100)
-clf_category.fit(X_train, y_category_train)
-
-# Classification urgence
-clf_urgency = RandomForestClassifier(n_estimators=100)
-clf_urgency.fit(X_train, y_urgency_train)
+model_queue = XGBClassifier(objective='multi:softprob')
+model_queue.fit(X_train, y_train)
 ```
 
-## Composant 2: RAG (Retrieval)
+## Composant 2: RAG (Retrieval Augmented Generation)
 
 ### Objectif
-- Trouver les informations pertinentes
-- Enrichir le contexte pour le LLM
+- Rechercher les documents pertinents dans la base de connaissances
+- Fournir du contexte au LLM pour generer une reponse pertinente
 
-### Sources
-1. Documentation technique
-2. FAQ
-3. Tickets précédents résolus
-4. Procédures internes
-
-### Architecture RAG
-```
-Question ──> Embedding ──> Recherche vectorielle ──> Top 5 docs
-                                                        │
-                                                        ▼
-                                              Contexte pour LLM
-```
-
-### Outils
-- Embeddings: `sentence-transformers`
-- Vector DB: ChromaDB, Pinecone, Weaviate
-- Framework: LangChain, LlamaIndex
-
-## Composant 3: LLM Fine-tuné + RLHF
-
-### Modèle de base
-- Mistral 7B (recommandé)
-- Llama 2/3
-- Phi-2 (plus petit)
-
-### Fine-tuning supervisé (SFT)
-```
-Input:  Question client + Contexte RAG
-Output: Réponse de l'agent humain (gold standard)
-```
-
-### RLHF
-```
-Reward Model évalue:
-- Réponse résout le problème? (+3)
-- Réponse polie et professionnelle? (+1)
-- Réponse hors sujet? (-2)
-- Réponse incorrecte/dangereuse? (-3)
-```
-
-### Pourquoi les deux?
-| Étape | Ce qu'elle apporte |
-|-------|-------------------|
-| SFT | Le modèle apprend le FORMAT des réponses |
-| RLHF | Le modèle apprend la QUALITÉ des réponses |
-
-## Stack technique recommandé
-
-| Composant | Outil |
-|-----------|-------|
-| Classification | Scikit-learn |
-| Embeddings | Sentence-transformers |
-| Vector DB | ChromaDB |
-| LLM | Mistral 7B (via HuggingFace) |
-| Fine-tuning | TRL + PEFT (LoRA) |
-| RLHF | TRL PPOTrainer |
-| API | FastAPI |
-| Orchestration | Airflow / Prefect |
-| Monitoring | MLflow |
-| Deploy | Docker + Kubernetes |
-
-## Dataset recommandé (bootcamp)
+### Implementation
+- **Embeddings** : Sentence Transformers (all-MiniLM-L6-v2)
+- **Vector DB** : PostgreSQL + PGVector
+- **Recherche** : Similarite cosinus
 
 ```python
-from datasets import load_dataset
-
-dataset = load_dataset(
-    "bitext/Bitext-customer-support-llm-chatbot-training-dataset"
+# Recherche semantique
+query_emb = embedder.encode(query_text)
+results = db.query(
+    "SELECT content FROM rag_docs ORDER BY embedding <=> %s LIMIT 5",
+    [query_emb]
 )
-
-# Structure
-# {
-#   "instruction": "I need help with my password",
-#   "intent": "password_reset",
-#   "category": "ACCOUNT",
-#   "response": "I can help you reset..."
-# }
 ```
 
-## Métriques à suivre
+## Composant 3: Generation de reponse (Mistral API)
 
-| Métrique | Description |
-|----------|-------------|
-| Accuracy classification | % bonnes catégories |
-| Response quality | Score du reward model |
-| Resolution rate | % problèmes résolus |
-| User satisfaction | Feedbacks 👍👎 |
-| Latency | Temps de réponse |
+### Implementation
+- **API** : Mistral AI (open-mistral-7b)
+- **Prompt** : Question + Contexte RAG + Classification
+
+```python
+messages = [
+    {"role": "system", "content": "Tu es un agent de support IT..."},
+    {"role": "user", "content": f"Categorie:{queue}\nContexte:{rag_docs}\nQuestion:{query}"}
+]
+response = requests.post(MISTRAL_API_URL, json={"messages": messages})
+```
+
+## Pipeline MLOps Automatise
+
+### Cycle complet
+
+```
+   ┌───────────────────────┐       ┌───────────────────────┐       ┌───────────────────────┐
+   │   1. DATA PIPELINE    │       │  2. TRAINING PIPELINE │       │    3. DEPLOYMENT      │
+   ├───────────────────────┤       ├───────────────────────┤       ├───────────────────────┤
+   │ PostgreSQL            │       │ Airflow DAG training  │       │ Docker: build image   │
+   │ - tickets_tech_en     │features│ - XGBoost (queue +   │modele │ - ghcr.io registry    │
+   │ - prediction_logs     │──────>│   urgence)            │──────>│                       │
+   │ - embeddings (PGVector)│      │ - Ray Tune (hyperparam)│       │ GitHub Actions: CI/CD │
+   │                       │       │                       │       │                       │
+   │ DVC: versioning data  │       │ MLflow:               │       │ K3s: Deployment       │
+   │ - S3 storage          │       │ - tracking experiments│       │ - 2 pods              │
+   └───────────────────────┘       └───────────────────────┘       └───────────────────────┘
+   ▲                                                                          │
+   │                                                                          │
+   │                                                                          ▼
+   │ ┌───────────────────────┐       ┌───────────────────────────────────────────────────────┐
+   │ │    5. MONITORING      │       │              4. SERVING (temps reel)                  │
+   │ ├───────────────────────┤       ├───────────────────────────────────────────────────────┤
+   │ │ Airflow DAG:          │       │  FastAPI (http://78.47.129.250:30080)                 │
+   │ │ - monitoring_evidently│       │  - XGBoost: prediction queue + urgence               │
+   │ │                       │       │  - Sentence Transformers: RAG                        │
+   │ │ prediction_logs:      │ logs  │  - Mistral API: generation reponse                   │
+   │ │ - predictions         │<──────│                                                       │
+   │ │ - feedback            │       │  Feedback utilisateur → prediction_logs              │
+   │ │                       │       └───────────────────────────────────────────────────────┘
+   │ │ Evidently: detection  │
+   │ │ drift                 │
+   │ │  ┌─────┐  ┌──────┐    │
+   │ │  │ OK  │  │DRIFT │    │
+   │ │  └──┬──┘  └──┬───┘    │
+   │ │     │        │        │
+   │ │  (rien)   retrain     │
+   │ └──────────────┼────────┘
+   │                │
+   │                ▼
+   │        ┌──────────────┐
+   │        │ DAG retrain  │
+   │        └──────────────┘
+   │                │
+   └────────────────┘
+```
+
+### Automatisation complete
+
+| Etape | Declencheur | Action |
+|-------|-------------|--------|
+| 1. Monitoring | Schedule (6h/jour) | Evidently detecte le drift |
+| 2. Hyperparameters | Drift > 30% | Ray Tune optimise les params |
+| 3. Retraining | Apres hyperparams | XGBoost entraine avec nouveaux params |
+| 4. Validation | Apres training | Verifie F1 > seuils minimaux |
+| 5. DVC Push | Si validation OK | Pousse modele vers S3 |
+| 6. CI/CD | Apres DVC push | GitHub Actions declenche via API |
+| 7. Deploy | CI/CD success | kubectl apply sur K3s |
+
+**Zero intervention manuelle** entre la detection de drift et le deploiement.
+
+## Stack Technique
+
+| Composant | Technologie |
+|-----------|-------------|
+| API | FastAPI |
+| Classification | XGBoost |
+| Embeddings | Sentence Transformers (all-MiniLM-L6-v2) |
+| LLM | Mistral API |
+| Base de donnees | PostgreSQL + PGVector |
+| Orchestration | Airflow |
+| Tracking ML | MLflow |
+| Versioning data | DVC + S3 |
+| Monitoring | Evidently |
+| Hyperparametres | Ray Tune |
+| Conteneurisation | Docker |
+| Orchestration K8s | K3s |
+| CI/CD | GitHub Actions |
+
+## URLs des Services
+
+| Service | URL |
+|---------|-----|
+| API Support Agent | http://78.47.129.250:30080 |
+| API Docs (Swagger) | http://78.47.129.250:30080/docs |
+| MLflow | http://78.47.129.250:5000 |
+| Airflow | http://78.47.129.250:8082 |
+| Evidently Reports | http://78.47.129.250:8083 |

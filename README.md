@@ -2,6 +2,16 @@
 
 Agent de support technique automatise utilisant le Machine Learning pour classifier les demandes et generer des reponses pertinentes.
 
+## Pipeline 100% Automatise
+
+Ce projet implemente un pipeline MLOps **entierement automatise** :
+
+```
+Drift detecte → Retraining → Validation → DVC push → CI/CD → Deploy K3s
+```
+
+**Aucune intervention manuelle requise** entre la detection de drift et le deploiement du nouveau modele.
+
 ## Features
 
 - Classification automatique des tickets (queue + urgence) avec XGBoost
@@ -200,7 +210,11 @@ projet_mlops_support/
 git push → Tests → Build Docker → Push ghcr.io → Deploy K3s
 ```
 
-Chaque push sur `main` declenche automatiquement le pipeline.
+Le pipeline CI/CD est declenche automatiquement :
+- A chaque push sur `main`
+- **Automatiquement apres retraining** (via GitHub API workflow_dispatch)
+
+Cela permet un deploiement **100% automatique** des nouveaux modeles sans intervention manuelle.
 
 ## Licence
 
