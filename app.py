@@ -105,10 +105,11 @@ NE JAMAIS utiliser de placeholders comme [Name], [tel_num], etc. Utilise les vra
     # Format Anthropic: system séparé, messages user/assistant
     messages = []
 
-    # Ajouter l'historique de conversation si présent
+    # Ajouter l'historique de conversation si présent (avec validation)
     if conversation_history:
         for msg in conversation_history:
-            messages.append({"role": msg["role"], "content": msg["content"]})
+            if isinstance(msg, dict) and "role" in msg and "content" in msg:
+                messages.append({"role": msg["role"], "content": msg["content"]})
 
     # Ajouter la nouvelle question avec contexte RAG
     messages.append({"role": "user", "content": f"Categorie:{pred_queue}\nUrgence:{pred_urgency}\nContexte:\n{context}\n\nQuestion:\n{user_query}"})
@@ -169,9 +170,13 @@ def agent(query: Query):
 
     # Construire la requête RAG avec contexte si historique existe
     if query.conversation_history:
-        # Combiner première question + message actuel pour meilleur RAG
-        first_user_msg = next((m["content"] for m in query.conversation_history if m["role"] == "user"), "")
-        rag_query = f"{first_user_msg} {query.user_query}"
+        # Valider le format de conversation_history (doit être liste de dicts avec role/content)
+        try:
+            valid_history = [m for m in query.conversation_history if isinstance(m, dict) and "role" in m and "content" in m]
+            first_user_msg = next((m["content"] for m in valid_history if m["role"] == "user"), "")
+            rag_query = f"{first_user_msg} {query.user_query}"
+        except (TypeError, KeyError):
+            rag_query = query.user_query
     else:
         rag_query = query.user_query
 
