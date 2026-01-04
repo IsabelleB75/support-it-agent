@@ -36,22 +36,57 @@ dag = DAG(
 
 def load_data(**context):
     """Charge les donnees enrichies + nouveaux logs production"""
-    engine = create_engine('postgresql://bootcamp_user:bootcamp_password@host.docker.internal:5433/support_tech')
+    import subprocess
+    import glob
 
-    logging.info("Chargement des donnees d'entrainement...")
-    df = pd.read_sql("SELECT * FROM tickets_tech_en_enriched", engine)
-    logging.info(f"Donnees historiques: {len(df)} tickets")
+    engine = create_engine('postgresql://bootcamp_user:bootcamp_password@host.docker.internal:5433/support_tech')
+    PROJECT_PATH = "/opt/airflow/project"
+    last_training_date = None
+
+    # 1. Cherche le dataset le plus récent versionné par DVC
+    try:
+        # Pull les dernières versions depuis DVC
+        subprocess.run(["dvc", "pull"], cwd=PROJECT_PATH, check=False)
+
+        # Trouve le fichier le plus récent
+        dataset_files = sorted(glob.glob(f"{PROJECT_PATH}/data/training_data_*.parquet"))
+        if dataset_files:
+            latest_dataset = dataset_files[-1]
+            logging.info(f"Chargement du dataset DVC le plus recent: {latest_dataset}")
+            df = pd.read_parquet(latest_dataset)
+            logging.info(f"Dataset DVC charge: {len(df)} tickets")
+
+            # Extrait la date du dernier training pour filtrer les nouveaux feedbacks
+            filename = os.path.basename(latest_dataset)
+            # Format: training_data_YYYYMMDD_HHMMSS.parquet
+            date_str = filename.replace("training_data_", "").replace(".parquet", "")
+            last_training_date = datetime.strptime(date_str, '%Y%m%d_%H%M%S')
+        else:
+            raise FileNotFoundError("Aucun dataset DVC trouve")
+    except Exception as e:
+        logging.info(f"Pas de dataset DVC disponible ({e}), chargement depuis PostgreSQL...")
+        df = pd.read_sql("SELECT * FROM tickets_tech_en_enriched", engine)
+        logging.info(f"Donnees historiques: {len(df)} tickets")
 
     # Ajoute les logs de production recents (si feedback disponible)
     try:
-        df_logs = pd.read_sql("""
+        # Si on a un dataset DVC, on charge seulement les feedbacks DEPUIS le dernier training
+        # Sinon, on prend les 30 derniers jours
+        if last_training_date:
+            date_filter = f"created_at >= '{last_training_date.strftime('%Y-%m-%d %H:%M:%S')}'"
+            logging.info(f"Chargement feedbacks depuis: {last_training_date}")
+        else:
+            date_filter = "created_at >= NOW() - INTERVAL '30 days'"
+            logging.info("Chargement feedbacks des 30 derniers jours")
+
+        df_logs = pd.read_sql(f"""
             SELECT input_text as subject, input_text as body_clean,
                    feedback_queue as refined_queue, feedback_urgency as urgency_level,
                    LENGTH(input_text) as body_length, 0 as answer_length, 1.0 as response_ratio,
                    '' as answer_clean, 'en' as language, '' as queue
             FROM prediction_logs
             WHERE feedback_queue IS NOT NULL
-              AND created_at >= NOW() - INTERVAL '30 days'
+              AND {date_filter}
         """, engine)
         if len(df_logs) > 0:
             logging.info(f"Ajout de {len(df_logs)} feedbacks production")
@@ -69,6 +104,29 @@ def load_data(**context):
     df.to_parquet('/tmp/training_data.parquet', index=False)
     context['ti'].xcom_push(key='data_size', value=len(df))
 
+    # Versioning DVC du dataset combiné
+    try:
+        import subprocess
+        PROJECT_PATH = "/opt/airflow/project"
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        dataset_filename = f"training_data_{timestamp}.parquet"
+        dataset_path = f"{PROJECT_PATH}/data/{dataset_filename}"
+
+        # Crée le dossier data s'il n'existe pas
+        os.makedirs(f"{PROJECT_PATH}/data", exist_ok=True)
+
+        # Copie le dataset avec timestamp
+        subprocess.run(["cp", "/tmp/training_data.parquet", dataset_path], check=True)
+
+        # DVC add + push
+        subprocess.run(["dvc", "add", f"data/{dataset_filename}"], cwd=PROJECT_PATH, check=True)
+        subprocess.run(["dvc", "push"], cwd=PROJECT_PATH, check=True)
+
+        logging.info(f"Dataset versionne avec DVC: {dataset_filename}")
+        context['ti'].xcom_push(key='dataset_version', value=dataset_filename)
+    except Exception as e:
+        logging.warning(f"Erreur versioning DVC dataset: {e}")
+
 def train_models(**context):
     """Entraine les modeles XGBoost avec embeddings"""
     logging.info("Chargement des donnees...")
@@ -78,6 +136,12 @@ def train_models(**context):
 
     num_features = ['body_length', 'answer_length', 'response_ratio',
                     'has_network', 'has_printer', 'has_security', 'has_hardware', 'has_software']
+
+    # Filtre les classes avec moins de 2 exemples (requis pour stratify)
+    queue_counts = df['refined_queue'].value_counts()
+    valid_queues = queue_counts[queue_counts >= 2].index
+    df = df[df['refined_queue'].isin(valid_queues)]
+    logging.info(f"Apres filtrage classes rares: {len(df)} tickets")
 
     # Encodage targets
     le_queue = LabelEncoder()
@@ -92,7 +156,7 @@ def train_models(**context):
 
     X_train, X_test, yq_train, yq_test, yu_train, yu_test = train_test_split(
         X, y_queue, y_urgency, test_size=0.15, random_state=42,
-        stratify=df[['refined_queue', 'urgency_level']]
+        stratify=y_queue  # Stratifie uniquement sur queue
     )
 
     logging.info(f"Train: {len(X_train)} | Test: {len(X_test)}")
@@ -132,6 +196,11 @@ def train_models(**context):
         mlflow.log_param("triggered_by", "drift_detection")
         mlflow.log_param("data_size", len(df))
         mlflow.log_param("hyperparams_source", "ray_tune" if hyperparams_loaded else "default")
+
+        # Log la version du dataset utilisé
+        dataset_version = context['ti'].xcom_pull(key='dataset_version', task_ids='load_data')
+        if dataset_version:
+            mlflow.log_param("dataset_version", dataset_version)
 
         if hyperparams_loaded:
             # Utilise les hyperparametres optimises par Ray Tune
@@ -209,15 +278,23 @@ def train_models(**context):
         logging.info(f"Queue     - Accuracy: {acc_queue:.4f} | F1: {f1_queue:.4f}")
         logging.info(f"Urgency   - Accuracy: {acc_urgency:.4f} | F1: {f1_urgency:.4f}")
 
-        # Log models
-        mlflow.xgboost.log_model(model_queue, "xgboost_queue_retrained")
-        mlflow.xgboost.log_model(model_urgency, "xgboost_urgency_retrained")
+        # Sauvegarde locale des modeles (pour deploiement)
+        MODEL_PATH = "/opt/airflow/data/models"
+        os.makedirs(MODEL_PATH, exist_ok=True)
+        model_queue.save_model(f"{MODEL_PATH}/xgboost_queue_retrained.json")
+        model_urgency.save_model(f"{MODEL_PATH}/xgboost_urgency_retrained.json")
+        joblib.dump(le_queue, f"{MODEL_PATH}/le_queue.pkl")
+        joblib.dump(le_urgency, f"{MODEL_PATH}/le_urgency.pkl")
+        logging.info(f"Modeles sauvegardes dans {MODEL_PATH}")
 
-        # Save encoders
-        joblib.dump(le_queue, "/tmp/le_queue.pkl")
-        joblib.dump(le_urgency, "/tmp/le_urgency.pkl")
-        mlflow.log_artifact("/tmp/le_queue.pkl")
-        mlflow.log_artifact("/tmp/le_urgency.pkl")
+        # Log models dans MLflow (optionnel, peut echouer si pas de shared storage)
+        try:
+            mlflow.xgboost.log_model(model_queue, "xgboost_queue_retrained")
+            mlflow.xgboost.log_model(model_urgency, "xgboost_urgency_retrained")
+            mlflow.log_artifact(f"{MODEL_PATH}/le_queue.pkl")
+            mlflow.log_artifact(f"{MODEL_PATH}/le_urgency.pkl")
+        except Exception as e:
+            logging.warning(f"Impossible de logger artifacts MLflow (non bloquant): {e}")
 
         context['ti'].xcom_push(key='run_id', value=run.info.run_id)
         context['ti'].xcom_push(key='f1_queue', value=f1_queue)
@@ -275,29 +352,35 @@ def deploy_model(**context):
 
     logging.info("=== DEPLOIEMENT AUTOMATIQUE ===")
 
-    # 1. DVC push vers S3
+    # Chemin des modeles sauvegardes par train_models
+    MODEL_PATH = "/opt/airflow/data/models"
+
+    # 1. DVC push vers S3 (optionnel - si DVC est configure)
     try:
         PROJECT_PATH = "/opt/airflow/project"  # Path vers le repo git
 
-        # Copie les modeles vers le repo
-        subprocess.run(["cp", "/tmp/le_queue.pkl", f"{PROJECT_PATH}/le_queue.pkl"], check=True)
-        subprocess.run(["cp", "/tmp/le_urgency.pkl", f"{PROJECT_PATH}/le_urgency.pkl"], check=True)
+        if os.path.exists(PROJECT_PATH):
+            # Copie les modeles vers le repo (depuis le bon chemin)
+            subprocess.run(["cp", f"{MODEL_PATH}/le_queue.pkl", f"{PROJECT_PATH}/le_queue.pkl"], check=True)
+            subprocess.run(["cp", f"{MODEL_PATH}/le_urgency.pkl", f"{PROJECT_PATH}/le_urgency.pkl"], check=True)
 
-        # DVC add + push
-        subprocess.run(["dvc", "add", "le_queue.pkl"], cwd=PROJECT_PATH, check=True)
-        subprocess.run(["dvc", "add", "le_urgency.pkl"], cwd=PROJECT_PATH, check=True)
-        subprocess.run(["dvc", "push"], cwd=PROJECT_PATH, check=True)
+            # DVC add + push
+            subprocess.run(["dvc", "add", "le_queue.pkl"], cwd=PROJECT_PATH, check=True)
+            subprocess.run(["dvc", "add", "le_urgency.pkl"], cwd=PROJECT_PATH, check=True)
+            subprocess.run(["dvc", "push"], cwd=PROJECT_PATH, check=True)
 
-        logging.info("DVC push vers S3 OK")
+            logging.info("DVC push vers S3 OK")
+        else:
+            logging.warning(f"Repertoire projet non trouve: {PROJECT_PATH} - DVC skip")
     except Exception as e:
-        logging.error(f"Erreur DVC push: {e}")
-        return
+        logging.warning(f"Erreur DVC push (non bloquant): {e}")
 
     # 2. Declenche le CI/CD via GitHub API
     try:
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
         if not GITHUB_TOKEN:
             logging.warning("GITHUB_TOKEN non configure - CI/CD non declenche")
+            logging.info(f"Modeles disponibles dans: {MODEL_PATH}")
             return
 
         # Trigger workflow_dispatch

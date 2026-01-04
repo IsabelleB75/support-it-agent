@@ -16,6 +16,53 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## Inference vs Training - Concept clé
+
+### Définitions
+
+| Concept | Définition | Le modèle change ? |
+|---------|-----------|-------------------|
+| **Training** | Le modèle apprend des patterns (ajuste ses poids) | OUI |
+| **Inference** | Le modèle utilise ses patterns pour produire un résultat | NON |
+
+### Application dans notre projet
+
+Lors du retraining, deux étapes se succèdent :
+
+```
+Nouveaux textes (prediction_logs avec feedback)
+        │
+        ▼
+┌─────────────────────────────────────────────┐
+│  Sentence Transformers (INFERENCE)          │
+│  - Convertit texte → vecteur 384 dim        │
+│  - Modèle PRE-ENTRAINE (ne change pas)      │
+│  - Prend ~30 min pour 17000 textes          │
+└─────────────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────────────┐
+│  XGBoost (TRAINING)                         │
+│  - Apprend à classifier queue/urgence       │
+│  - Modèle ENTRAINE par nous (change)        │
+│  - Prend ~1 min                             │
+└─────────────────────────────────────────────┘
+        │
+        ▼
+Nouveau modèle déployé
+```
+
+### Pourquoi re-vectoriser à chaque retraining ?
+
+Les nouvelles questions (via `prediction_logs`) arrivent en **texte brut**. Or XGBoost ne comprend pas le texte - il a besoin de **vecteurs numériques**.
+
+Donc à chaque retraining :
+1. On récupère le dataset enrichi (ancien + nouveaux feedbacks)
+2. On re-vectorise TOUT avec Sentence Transformers (**inference**)
+3. On entraîne XGBoost sur ces vecteurs (**training**)
+
+**C'est l'inference qui prend le plus de temps** (~30 min) car on traite 17000+ textes. Mais le modèle Sentence Transformers ne change jamais - il "travaille" simplement.
+
 ## Étape 1: Collecte des feedbacks
 
 ### Sources de feedback

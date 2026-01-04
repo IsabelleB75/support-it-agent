@@ -63,7 +63,27 @@ def prep_features():
     for k, regex in keywords.items():
         df[f'has_{k}'] = df['body_clean'].str.contains(regex, case=False, na=False).astype(int)
 
-    # 4. Sauvegarde dans nouvelle table
+    # 4. Création de refined_queue (classification fine basée sur keywords)
+    def assign_refined_queue(row):
+        if row['has_security'] == 1:
+            return 'Security / Access'
+        elif row['has_printer'] == 1:
+            return 'Hardware / Device'  # Fusionné avec Hardware
+        elif row['has_hardware'] == 1:
+            return 'Hardware / Device'
+        elif row['has_network'] == 1:
+            return 'Network / Infrastructure'
+        elif row['has_software'] == 1 or row['queue'] == 'Product Support':
+            return 'Software / Product'
+        elif row['queue'] == 'Service Outages and Maintenance':
+            return 'Service Outages'
+        else:
+            return 'General Technical Support'
+
+    df['refined_queue'] = df.apply(assign_refined_queue, axis=1)
+    logging.info(f"Distribution refined_queue:\n{df['refined_queue'].value_counts()}")
+
+    # 5. Sauvegarde dans nouvelle table
     logging.info(f"Enrichissement terminé : {len(df)} lignes. Sauvegarde...")
     df.to_sql(
         name='tickets_tech_en_enriched',

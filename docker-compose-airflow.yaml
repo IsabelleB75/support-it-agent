@@ -4,7 +4,7 @@ x-airflow-common: &airflow-common
   image: apache/airflow:2.7.0
   user: "${AIRFLOW_UID:-50000}:0"
   environment:
-    - _PIP_ADDITIONAL_REQUIREMENTS=evidently pandas sqlalchemy psycopg2-binary pyarrow xgboost scikit-learn mlflow joblib sentence-transformers ray[tune] optuna
+    - _PIP_ADDITIONAL_REQUIREMENTS=evidently pandas sqlalchemy psycopg2-binary pyarrow xgboost scikit-learn mlflow joblib sentence-transformers ray[tune] optuna langdetect
     - AIRFLOW__CORE__EXECUTOR=LocalExecutor
     - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
     - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
@@ -16,6 +16,7 @@ x-airflow-common: &airflow-common
     - ./logs:/opt/airflow/logs
     - ./data:/opt/airflow/data
     - ./mlruns:/opt/airflow/mlruns
+    - ./mlruns:/mlflow/mlruns
     - ./reports:/opt/airflow/reports
   extra_hosts:
     - "host.docker.internal:host-gateway"

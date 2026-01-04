@@ -144,10 +144,10 @@ def run_ray_tune_optimization(**context):
         "colsample_bytree": tune.uniform(0.6, 1.0),
     }
 
-    scheduler = ASHAScheduler(max_t=10, grace_period=1, reduction_factor=2)
-
     # --- Recherche Queue ---
     logging.info("Ray Tune - Optimisation modele QUEUE...")
+
+    scheduler_queue = ASHAScheduler(max_t=10, grace_period=1, reduction_factor=2)
 
     def train_queue(config):
         model = XGBClassifier(
@@ -165,7 +165,7 @@ def run_ray_tune_optimization(**context):
         train_queue,
         config=search_space,
         num_samples=N_TRIALS,
-        scheduler=scheduler,
+        scheduler=scheduler_queue,
         search_alg=OptunaSearch(),
         metric="f1_score",
         mode="max",
@@ -182,6 +182,7 @@ def run_ray_tune_optimization(**context):
     # --- Recherche Urgency ---
     logging.info("Ray Tune - Optimisation modele URGENCY...")
 
+    scheduler_urgency = ASHAScheduler(max_t=10, grace_period=1, reduction_factor=2)
     sample_weights = compute_sample_weight('balanced', yu_train)
 
     def train_urgency(config):
@@ -202,7 +203,7 @@ def run_ray_tune_optimization(**context):
         train_urgency,
         config=search_space,
         num_samples=N_TRIALS,
-        scheduler=scheduler,
+        scheduler=scheduler_urgency,
         search_alg=OptunaSearch(),
         metric="f1_score",
         mode="max",

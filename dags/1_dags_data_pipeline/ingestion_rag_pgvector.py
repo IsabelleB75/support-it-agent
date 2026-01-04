@@ -36,9 +36,9 @@ def ingest_rag_to_pgvector():
     # Split train (on utilise seulement train pour l'index RAG -> évite leakage)
     train, _ = train_test_split(
         df,
-        test_size=0.28,
+        test_size=0.30,
         random_state=42,
-        stratify=df[['refined_queue', 'urgency_level']]
+        stratify=df[['queue', 'urgency_level']]
     )
     logging.info(f"Utilisation de {len(train)} tickets pour l'index RAG (train split)")
 
@@ -62,7 +62,6 @@ Réponse agent typique :
         metadata = {
             "refined_queue": row['refined_queue'],
             "urgency_level": row['urgency_level'],
-            "original_queue": row['queue'],
             "language": row['language'] if pd.notna(row['language']) else 'en'
         }
 

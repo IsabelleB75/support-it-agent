@@ -277,6 +277,13 @@ for msg in st.session_state.messages:
                         pass
                     st.info("Noté")
 
+            # Afficher les sources RAG
+            rag_sources = msg.get("rag_sources", [])
+            if rag_sources:
+                with st.expander("📚 Sources RAG utilisées"):
+                    for i, src in enumerate(rag_sources, 1):
+                        st.markdown(f"**{i}.** {src}")
+
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Message d'accueil si pas de messages
@@ -296,27 +303,28 @@ if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
 
     # Détecter les messages simples qui ne nécessitent pas l'API
-    simple_responses = {
-        "merci": "Je vous en prie ! N'hésitez pas si vous avez d'autres questions techniques.",
-        "ok": "Parfait ! Je reste à votre disposition si besoin.",
-        "d'accord": "Très bien ! Contactez-nous si le problème persiste.",
-        "super": "Ravi d'avoir pu vous aider ! Bonne continuation.",
-        "cool": "Content que ça fonctionne ! À bientôt.",
-        "parfait": "Excellent ! N'hésitez pas à revenir vers nous.",
-        "top": "Merci ! Je reste disponible pour toute autre question.",
-        "nickel": "Super ! Bonne continuation avec votre équipement.",
-        "ca marche": "Parfait ! Ravi d'avoir pu résoudre votre problème.",
-        "ça marche": "Parfait ! Ravi d'avoir pu résoudre votre problème.",
-        "c'est bon": "Excellent ! À votre service pour toute autre demande.",
-        "genial": "Content d'avoir pu vous aider ! Bonne journée.",
-    }
+    user_lower = user_input.lower().strip()
 
-    user_lower = user_input.lower().strip().rstrip("!.,")
+    # Mots-clés de remerciement/confirmation
+    gratitude_keywords = ["merci", "thanks", "thank you", "thx"]
+    confirmation_keywords = ["ok", "d'accord", "compris", "entendu", "noté"]
+    positive_keywords = ["super", "cool", "parfait", "top", "nickel", "genial", "génial", "excellent", "impec"]
+    success_keywords = ["ca marche", "ça marche", "c'est bon", "c bon", "ca fonctionne", "ça fonctionne", "resolu", "résolu"]
 
-    if user_lower in simple_responses:
+    simple_response = None
+    if any(kw in user_lower for kw in gratitude_keywords):
+        simple_response = "Je vous en prie ! N'hésitez pas si vous avez d'autres questions techniques."
+    elif any(kw in user_lower for kw in success_keywords):
+        simple_response = "Parfait, ravi d'avoir pu résoudre votre problème ! Bonne continuation."
+    elif any(kw in user_lower for kw in positive_keywords):
+        simple_response = "Content d'avoir pu vous aider ! À votre disposition pour toute autre question."
+    elif any(kw in user_lower for kw in confirmation_keywords) and len(user_lower) < 20:
+        simple_response = "Très bien ! Contactez-nous si le problème persiste."
+
+    if simple_response:
         st.session_state.messages.append({
             "role": "assistant",
-            "content": simple_responses[user_lower],
+            "content": simple_response,
             "queue": "Suivi",
             "urgency": "low"
         })
@@ -350,7 +358,8 @@ if user_input:
                     "role": "assistant",
                     "content": result.get('response', 'Pas de réponse disponible.'),
                     "queue": result.get('predicted_queue', ''),
-                    "urgency": result.get('predicted_urgency', '')
+                    "urgency": result.get('predicted_urgency', ''),
+                    "rag_sources": result.get('rag_sources', [])
                 })
 
                 st.session_state.last_prediction_id = result.get('prediction_id')

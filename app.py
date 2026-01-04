@@ -142,6 +142,7 @@ class Feedback(BaseModel):
     correct_urgency: Optional[str] = None
 
 def log_prediction(input_text: str, pred_queue: str, pred_urgency: str,
+                   response: str = None, language: str = None,
                    conf_queue: float = None, conf_urgency: float = None) -> int:
     """Enregistre une prediction dans la base pour monitoring et retraining"""
     try:
@@ -149,10 +150,10 @@ def log_prediction(input_text: str, pred_queue: str, pred_urgency: str,
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO prediction_logs
-            (input_text, predicted_queue, predicted_urgency, confidence_queue, confidence_urgency)
-            VALUES (%s, %s, %s, %s, %s)
+            (input_text, predicted_queue, predicted_urgency, response, language, confidence_queue, confidence_urgency)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING id
-        """, (input_text, pred_queue, pred_urgency, conf_queue, conf_urgency))
+        """, (input_text, pred_queue, pred_urgency, response, language, conf_queue, conf_urgency))
         prediction_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
@@ -179,8 +180,8 @@ def agent(query: Query):
     # Mistral reçoit: historique + docs RAG + nouveau message
     response = generate_response(query.user_query, retrieved, pred_queue, pred_urgency, query.conversation_history)
 
-    # Log la prediction pour monitoring et retraining
-    prediction_id = log_prediction(query.user_query, pred_queue, pred_urgency)
+    # Log la prediction pour monitoring et retraining (avec réponse pour feedback loop complet)
+    prediction_id = log_prediction(query.user_query, pred_queue, pred_urgency, response=response, language='en')
 
     return {
         "prediction_id": prediction_id,

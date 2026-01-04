@@ -4,6 +4,7 @@ from airflow.operators.python import PythonOperator
 import pandas as pd
 from sqlalchemy import create_engine
 import logging
+from langdetect import detect, LangDetectException
 
 default_args = {
     'owner': 'jedha_bootcamp',
@@ -21,6 +22,15 @@ dag = DAG(
     tags=['ingestion', 'postgres', 'tickets'],
 )
 
+def detect_language(text):
+    """Détecte la langue réelle du texte (pas le metadata)"""
+    try:
+        if pd.isna(text) or len(str(text).strip()) < 20:
+            return 'unknown'
+        return detect(str(text)[:500])  # 500 chars suffisent pour détecter
+    except LangDetectException:
+        return 'unknown'
+
 def ingest_to_postgres():
     # Chemin vers ton parquet filtré
     parquet_path = '/opt/airflow/data/train_tech_en.parquet'
@@ -30,9 +40,25 @@ def ingest_to_postgres():
 
     logging.info("Lecture du parquet...")
     df = pd.read_parquet(parquet_path)
+    initial_count = len(df)
 
-    logging.info(f"Ingestion de {len(df)} lignes dans tickets_tech_en...")
-    df.to_sql(
+    # Détection de langue réelle sur le body
+    logging.info("Détection de langue en cours...")
+    df['detected_lang'] = df['body'].apply(detect_language)
+
+    # Stats avant filtrage
+    lang_stats = df['detected_lang'].value_counts()
+    logging.info(f"Langues détectées:\n{lang_stats}")
+
+    # Garde uniquement l'anglais confirmé
+    df_clean = df[df['detected_lang'] == 'en'].copy()
+    df_clean = df_clean.drop(columns=['detected_lang'])  # Pas besoin de stocker
+
+    filtered_count = initial_count - len(df_clean)
+    logging.info(f"Filtrage langue: {initial_count} → {len(df_clean)} tickets ({filtered_count} non-anglais supprimés)")
+
+    logging.info(f"Ingestion de {len(df_clean)} lignes dans tickets_tech_en...")
+    df_clean.to_sql(
         name='tickets_tech_en',
         con=engine,
         if_exists='replace',  # ou 'append' si tu veux accumuler

@@ -95,7 +95,7 @@ def train_and_log_model_v2():
     logging.info("Sample weights calculés pour urgency (classe 'low' boostée)")
 
     # MLflow setup
-    mlflow.set_tracking_uri("file:///opt/airflow/mlruns")
+    mlflow.set_tracking_uri("http://host.docker.internal:5000")
     mlflow.set_experiment("tickets_classification_bootcamp")
 
     with mlflow.start_run(run_name="xgboost_v2_embeddings") as run:

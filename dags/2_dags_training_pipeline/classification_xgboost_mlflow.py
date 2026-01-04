@@ -79,7 +79,7 @@ def train_and_log_model():
     X_test_full = hstack([X_test_tfidf, X_test[num_features]])
 
     # MLflow setup - écriture directe sur disque (évite problèmes de permission)
-    mlflow.set_tracking_uri("file:///opt/airflow/mlruns")
+    mlflow.set_tracking_uri("http://host.docker.internal:5000")
     mlflow.set_experiment("tickets_classification_bootcamp")
 
     with mlflow.start_run(run_name="xgboost_multi_target") as run:

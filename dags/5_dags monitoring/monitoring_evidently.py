@@ -103,8 +103,8 @@ def check_drift(**context):
     logging.info(f"Dataset Drift Detecte: {dataset_drift}")
     logging.info(f"Proportion de features en drift: {drift_share:.2%}")
 
-    # Sauvegarde le rapport HTML
-    report_path = "/opt/airflow/reports"
+    # Sauvegarde le rapport HTML (dans /tmp accessible en écriture)
+    report_path = "/tmp/evidently_reports"
     os.makedirs(report_path, exist_ok=True)
     report_file = f"{report_path}/drift_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
     report.save_html(report_file)
