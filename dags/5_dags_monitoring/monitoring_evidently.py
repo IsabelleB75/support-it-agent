@@ -3,13 +3,15 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 import pandas as pd
-from sqlalchemy import create_engine, text
-from evidently.legacy.report import Report
-from evidently.legacy.metric_preset import DataDriftPreset
-from evidently.legacy.metrics import DatasetDriftMetric
+from sqlalchemy import text
+from evidently import Report
+from evidently.presets import DataDriftPreset
 import logging
 import json
 import os
+import sys
+sys.path.insert(0, '/opt/airflow/dags')
+from utils.db_config import get_db_engine
 
 default_args = {
     'owner': 'jedha_bootcamp',
@@ -23,14 +25,14 @@ dag = DAG(
     default_args=default_args,
     description='Monitoring drift avec Evidently - declenche retraining si drift detecte',
     schedule_interval='0 6 * * *',  # Tous les jours a 6h
-    start_date=datetime(2025, 12, 1),
+    start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=['monitoring', 'evidently', 'drift', 'mlops'],
 )
 
 def check_drift(**context):
     """Verifie le drift entre donnees reference et production"""
-    engine = create_engine('postgresql://bootcamp_user:bootcamp_password@host.docker.internal:5433/support_tech')
+    engine = get_db_engine()
 
     logging.info("Chargement des donnees de reference (train)...")
     # Donnees de reference = train set original
@@ -85,19 +87,27 @@ def check_drift(**context):
     df_ref_num = df_reference[num_cols].fillna(0)
     df_prod_num = df_production[num_cols].fillna(0)
 
-    # Rapport Evidently
+    # Rapport Evidently (API v0.7.x)
     logging.info("Generation du rapport Evidently...")
     report = Report(metrics=[
-        DatasetDriftMetric(),
         DataDriftPreset(),
     ])
 
-    report.run(reference_data=df_ref_num, current_data=df_prod_num)
+    snapshot = report.run(reference_data=df_ref_num, current_data=df_prod_num)
 
-    # Extrait les resultats
-    result_dict = report.as_dict()
-    dataset_drift = result_dict['metrics'][0]['result']['dataset_drift']
-    drift_share = result_dict['metrics'][0]['result']['drift_share']
+    # Extrait les resultats (API v0.7.x: snapshot.dict())
+    result_dict = snapshot.dict()
+
+    # Trouve le metric DriftedColumnsCount pour le drift share
+    drift_share = 0.0
+    for m in result_dict.get('metrics', []):
+        if 'DriftedColumnsCount' in str(m.get('metric_id', '')):
+            value = m.get('value', {})
+            drift_share = value.get('share', 0.0)
+            break
+
+    # Dataset drift si plus de 50% des colonnes ont drift
+    dataset_drift = drift_share > 0.5
 
     logging.info(f"=== RESULTATS DRIFT ===")
     logging.info(f"Dataset Drift Detecte: {dataset_drift}")
@@ -107,7 +117,7 @@ def check_drift(**context):
     report_path = "/tmp/evidently_reports"
     os.makedirs(report_path, exist_ok=True)
     report_file = f"{report_path}/drift_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-    report.save_html(report_file)
+    snapshot.save_html(report_file)
     logging.info(f"Rapport sauvegarde: {report_file}")
 
     # Push resultats pour decision
@@ -134,8 +144,8 @@ def decide_retraining(**context):
 
     logging.info(f"Drift detecte: {drift_detected} | Score: {drift_score}")
 
-    # Seuil: si plus de 30% des features ont drift, on retraine
-    DRIFT_THRESHOLD = 0.30
+    # Seuil: si plus de 5% des features ont drift, on retraine (abaisse pour tests)
+    DRIFT_THRESHOLD = 0.05
 
     if drift_detected or (drift_score and drift_score > DRIFT_THRESHOLD):
         logging.info(f"ALERTE: Drift significant detecte ({drift_score:.2%} > {DRIFT_THRESHOLD:.2%})")

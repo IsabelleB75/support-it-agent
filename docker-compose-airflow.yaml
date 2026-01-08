@@ -4,13 +4,17 @@ x-airflow-common: &airflow-common
   image: apache/airflow:2.7.0
   user: "${AIRFLOW_UID:-50000}:0"
   environment:
-    - _PIP_ADDITIONAL_REQUIREMENTS=evidently pandas sqlalchemy psycopg2-binary pyarrow xgboost scikit-learn mlflow joblib sentence-transformers ray[tune] optuna langdetect
+    - _PIP_ADDITIONAL_REQUIREMENTS=evidently pandas sqlalchemy psycopg2-binary pyarrow xgboost scikit-learn mlflow joblib sentence-transformers ray[tune] optuna langdetect dvc dvc-s3
     - AIRFLOW__CORE__EXECUTOR=LocalExecutor
     - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
     - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
     - AIRFLOW__CORE__LOAD_EXAMPLES=False
     - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW_SECRET_KEY}
     - GITHUB_TOKEN=${GITHUB_TOKEN}
+    # AWS Credentials pour DVC S3
+    - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+    - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
@@ -18,6 +22,7 @@ x-airflow-common: &airflow-common
     - ./mlruns:/opt/airflow/mlruns
     - ./mlruns:/mlflow/mlruns
     - ./reports:/opt/airflow/reports
+    - ./dvc_project:/opt/airflow/project  # Repo DVC persistant
   extra_hosts:
     - "host.docker.internal:host-gateway"
 
@@ -50,7 +55,9 @@ services:
           --firstname Admin \
           --lastname User \
           --role Admin \
-          --email admin@example.com
+          --email admin@example.com || true
+        # Pool pour deploiement exclusif (evite concurrence inter-DAG sur Git/DVC)
+        airflow pools set deploy_pool 1 "Pool exclusif pour deploiement Git/DVC"
     depends_on:
       airflow-postgres:
         condition: service_healthy
@@ -69,8 +76,7 @@ services:
     <<: *airflow-common
     container_name: support_airflow_scheduler
     command: scheduler
-    ports:
-      - "8265:8265"  # Ray Dashboard (disponible pendant hyperparameter tuning)
+    # Ray dashboard desactive dans le DAG (include_dashboard=False)
     depends_on:
       airflow-postgres:
         condition: service_healthy
