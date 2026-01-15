@@ -1,0 +1,106 @@
+version: '3.8'
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.7.0
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment:
+    - _PIP_ADDITIONAL_REQUIREMENTS=evidently pandas sqlalchemy psycopg2-binary pyarrow xgboost scikit-learn mlflow joblib sentence-transformers ray[tune] optuna langdetect dvc dvc-s3
+    - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+    - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
+    - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+    - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW_SECRET_KEY}
+    - GITHUB_TOKEN=${GITHUB_TOKEN}
+    # AWS Credentials pour DVC S3
+    - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+    - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./data:/opt/airflow/data
+    - ./mlruns:/opt/airflow/mlruns
+    - ./mlruns:/mlflow/mlruns
+    - ./reports:/opt/airflow/reports
+    - ./dvc_project:/opt/airflow/project  # Repo DVC persistant
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+  airflow-postgres:
+    image: postgres:15
+    container_name: support_airflow_postgres
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - support_airflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: support_airflow_init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db init
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com || true
+        # Pool pour deploiement exclusif (evite concurrence inter-DAG sur Git/DVC)
+        airflow pools set deploy_pool 1 "Pool exclusif pour deploiement Git/DVC"
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: support_airflow_webserver
+    command: webserver
+    ports:
+      - "8082:8080"  # Port 8082 pour éviter conflit avec fraud (8081)
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: support_airflow_scheduler
+    command: scheduler
+    # Ray dashboard desactive dans le DAG (include_dashboard=False)
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+
+  evidently-reports:
+    image: nginx:alpine
+    container_name: support_evidently_reports
+    ports:
+      - "8083:80"  # Interface web pour rapports Evidently
+    volumes:
+      - ./reports:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.9.2
+    container_name: support_mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlflow/mlruns
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow/mlruns/mlflow.db --default-artifact-root /mlflow/mlruns
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  support_airflow_postgres_data:

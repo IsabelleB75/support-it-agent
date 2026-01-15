@@ -1,0 +1,6 @@
+[core]
+    autostage = true
+    remote = s3_storage
+['remote "s3_storage"']
+    url = s3://mlflow-jedha-s3/dvc
+    region = eu-north-1

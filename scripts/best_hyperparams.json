@@ -1,0 +1,24 @@
+{
+  "queue": {
+    "max_depth": 7,
+    "learning_rate": 0.18219836792553498,
+    "n_estimators": 200,
+    "min_child_weight": 7,
+    "subsample": 0.8185245392490201,
+    "colsample_bytree": 0.8185588712013512
+  },
+  "urgency": {
+    "max_depth": 8,
+    "learning_rate": 0.08043930136313003,
+    "n_estimators": 100,
+    "min_child_weight": 1,
+    "subsample": 0.9057573113101042,
+    "colsample_bytree": 0.739310679511574
+  },
+  "scores": {
+    "queue": 0.9223138203813845,
+    "urgency": 0.7931198440467471
+  },
+  "sample_size": "full_dataset",
+  "n_trials": 15
+}

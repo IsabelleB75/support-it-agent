@@ -1,0 +1,36 @@
+# Environnement
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+.venv/
+
+# Modèles (trop gros pour Git)
+*.pkl
+*.xgb
+xgboost_*/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Data
+*.parquet
+data/
+
+# MLflow local
+mlruns/
+/models
+/xgboost_queue_v2
+/xgboost_urgency_v2
+venv_streamlit/
+notebooks/

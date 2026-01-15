@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: support-agent
+  labels:
+    app: support-agent
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: support-agent
+  template:
+    metadata:
+      labels:
+        app: support-agent
+    spec:
+      imagePullSecrets:
+      - name: ghcr-secret
+      containers:
+      - name: support-agent
+        image: ghcr.io/isabelleb75/support-it-agent:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        env:
+        - name: MISTRAL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: support-agent-secrets
+              key: mistral-api-key
+        - name: POSTGRES_HOST
+          value: "78.47.129.250"
+        - name: POSTGRES_PORT
+          value: "5433"
+        - name: POSTGRES_DB
+          value: "support_tech"
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: support-agent-secrets
+              key: postgres-user
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: support-agent-secrets
+              key: postgres-password
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
