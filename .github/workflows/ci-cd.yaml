@@ -49,7 +49,7 @@ jobs:
           python-version: '3.10'
 
       - name: Install DVC
-        run: pip install 'dvc[s3]'
+        run: pip install "dvc[s3]" boto3
 
       - name: Pull model files from DVC/S3
         env:
